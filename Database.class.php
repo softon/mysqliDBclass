@@ -1,5 +1,5 @@
 <?php
-# Name: Database.class.php
+# Name: Database.singleton.php
 # File Description: MySQLi Singleton Class to allow easy and clean access to common mysql commands
 # Author: Shiburaj
 # Web: http://www.shiburaj.com/
@@ -43,7 +43,7 @@ class Database{
     /**
      * @uses Set to true to print the query executed
      */
-    public $show_query = false;
+    public $show_query = true;
 	
 	/**
      * @uses Database Instance
@@ -83,7 +83,7 @@ class Database{
     /**
      * @uses Enable or Disable Transaction Debug Info on Screen
      */
-	public $transactionDebug = false;
+	public $transactionDebug = true;
     
 
 
@@ -455,14 +455,14 @@ public function start_transaction(){
     
 	$this->transactionMode = true;
 	$this->error = 0;
-	return mysqli_begin_transaction($this->link_id);
+	return mysqli_autocommit($this->link_id,FALSE);
     
 }   //start_transaction
 
 
 /**
  * @uses Stop and Process a Transaction
- * @return Bool
+ * @return Bool (True: Transaction Commited)/(False: Transaction Rolled Back)
  */
 public function stop_transaction(){
 	if($this->transactionDebug===true){
@@ -493,8 +493,9 @@ public function commit(){
         $this->oops('Commiting Transaction.','db_success');
     }
     
-	return mysqli_commit($this->link_id);
-    
+	$return = mysqli_commit($this->link_id);
+    mysqli_autocommit($this->link_id,TRUE);
+	return $return;
 }   //commit
 
 
@@ -506,7 +507,9 @@ public function rollback(){
 	if($this->transactionDebug===true){
         $this->oops('Rolling Back Transaction.','db_warning');
     }
-	return mysqli_rollback($this->link_id);
+	$return = mysqli_rollback($this->link_id);
+	mysqli_autocommit($this->link_id,TRUE);
+	return $return;
     
 }   //rollback
 
