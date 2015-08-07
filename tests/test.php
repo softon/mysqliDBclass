@@ -1,13 +1,18 @@
-<?php
+<?php 
 
-include_once('config.inc.php');
-include_once('Database.class.php');
+require_once __DIR__ . '/../src/config/config.inc.php'; // Autoload files using Composer autoload
+require_once __DIR__ . '/../vendor/autoload.php'; // Autoload files using Composer autoload
+
+use Softon\MySqlDB\Database;
+
+
 /************************************************************
 *******************  Creating Objects  **********************
 ************************************************************/
 
 // Create Database Object
-$db = Database::obtain(DB_SERVER,DB_USER,DB_PASS,DB_DATABASE);
+$db = Database::obtain(DB_SERVER, DB_USER, DB_PASS, DB_DATABASE);
+
 
 // Connect to the server
 $db->connect(); 

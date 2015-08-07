@@ -1,5 +1,5 @@
-<?php
-# Name: Database.singleton.php
+<?php namespace Softon\MySqlDB;
+# Name: Database.php
 # File Description: MySQLi Singleton Class to allow easy and clean access to common mysql commands
 # Author: Shiburaj
 # Web: http://www.shiburaj.com/
@@ -24,16 +24,12 @@
 */
 
 
-//require("config.inc.php");
-//$db = Database::obtain(DB_SERVER, DB_USER, DB_PASS, DB_DATABASE);
-
-//$db = Database::obtain();
 
 
 ###################################################################################################
 ###################################################################################################
 ###################################################################################################
-class Database{
+class Database {
 
 	/**
      * @uses Enable or Disable Debug Mode
