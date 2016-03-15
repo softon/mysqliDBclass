@@ -1,4 +1,4 @@
-<?php namespace Softon\MySqlDB;
+<?php
 # Name: Database.php
 # File Description: MySQLi Singleton Class to allow easy and clean access to common mysql commands
 # Author: Shiburaj
@@ -82,12 +82,7 @@ class Database {
 	public $transactionDebug = true;
     
 
-
-/**
- * @uses Constructor for setting up the database variables
- *       $db = Database::obtain(DB_SERVER, DB_USER, DB_PASS, DB_DATABASE);
- */
-private function __construct($server=null, $user=null, $pass=null, $database=null){
+public function __construct($server=null, $user=null, $pass=null, $database=null){
 	// error catching if not passed in
 	if($server==null || $user==null || $database==null){
 		$this->oops("Database information must be passed in when the object is first created.");
@@ -97,330 +92,319 @@ private function __construct($server=null, $user=null, $pass=null, $database=nul
 	$this->user=$user;
 	$this->pass=$pass;
 	$this->database=$database;
+
+    $this->link_id=@mysqli_connect($this->server,$this->user,$this->pass,$this->database);
+
+    return $this;
 }   //constructor
 
 
-/**
- * @uses Database Singleton Function
- *       $db = Database::obtain();
- */
-public static function obtain($server=null, $user=null, $pass=null, $database=null){
-	if (!self::$instance){ 
-		self::$instance = new Database($server, $user, $pass, $database); 
-	} 
-
-	return self::$instance; 
-}   //obtain
-
-
-/**
- * @uses connect and select database using vars above
- * @param $new_link can force connect() to open a new link, even if mysql_connect() was called before with the same parameters
- */
-public function connect($new_link=false){
-	$this->link_id=@mysqli_connect($this->server,$this->user,$this->pass,$this->database);
-    
-	if (!$this->link_id){//open failed
-	   $this->oops("Could not connect to server or select database: <b>$this->server,$this->database</b>.");
-	}
-
-	// unset the data so it can't be dumped
-	$this->server='';
-	$this->user='';
-	$this->pass='';
-	$this->database='';
-}   //connect
-
-
-
-/**
- * @uses close the connection
- */
-public function close(){
-	if(!@mysqli_close($this->link_id)){
-		$this->oops("Connection close failed.");
-	}
-}   //close
-
-
-/**
- * @uses escapes characters to be mysql ready
- * @param string
- * @return string
- */
-public function escape($string){
-	if(get_magic_quotes_runtime()) $string = stripslashes($string);
-	return @mysqli_real_escape_string($this->link_id, $string);
-}   //escape
-
-
-/**
- * @uses executes SQL query to an open connection
- * @param (MySQL query) to execute
- * @return (query_id) for fetching results etc
- */
-public function query($sql){
-	// do query
-    if($this->show_query===true){
-        $this->oops('Query >> '.$sql,'db_warning');
-        //$this->show_query = false;
-    }
-	$this->query_id = @mysqli_query($this->link_id, $sql);
-    //echo $sql;
-	if (!$this->query_id){
-		$this->error++;
-		$this->oops("<b>MySQL Query fail:</b> $sql");
-		return 0;
-	}
-	
-	$this->affected_rows = @mysqli_affected_rows($this->link_id);
-
-	return $this->query_id;
-}   //query
-
-
-/**
- * @uses does a query, fetches the first row only, frees resultset
- * @param (MySQL query) the query to run on server
- * @return array of fetched results
- */
-public function query_first($query_string){
-	$query_id = $this->query($query_string);
-	$out = $this->fetch($query_id);
-	$this->free_result($query_id);
-	return $out;
-}   // query_first
-
-
-/**
- * @uses fetches and returns results one line at a time
- * @param query_id for mysql run. if none specified, last used
- *        $type MYSQLI_ASSOC, MYSQLI_NUM, or MYSQLI_BOTH
- * @return (array) fetched record(s)
- */
-public function fetch($query_id=false,$type=MYSQLI_ASSOC){
-	// retrieve row
-	if ($query_id!==false){
-		$this->query_id=$query_id;
-	}
-
-	if (isset($this->query_id)){
-		$record = @mysqli_fetch_array($this->query_id,$type);
-	}else{
-		$this->oops("Invalid query_id. Records could not be fetched.");
-	}
-
-	return $record;
-}   // fetch
-
-
-
-
-/**
- * @uses returns all the results of the current query
- * @param (MySQL query) the query to run on server
- * @return assoc array of ALL fetched results
- */
-public function fetch_array($sql,$type=MYSQLI_ASSOC){
-	$query_id = $this->query($sql);
-	$out = array();
-
-	while ($row = $this->fetch($query_id,$type)){
-		$out[] = $row;
-	}
-
-	$this->free_result($query_id);
-	return $out;
-}   //fetch_array
-
-
-/**
- * @uses get all rows matching sql criteria (auto escaped vars)
- * @param sql query with ? at places where vars are to be inserted, $vars array of values to insert
- * @return all fetched rows
- */
-public function get($sql,$vars){
-    $sql_arr = explode('?',$sql);
-    $fsql = '';
-    if(count($sql_arr)>=2){
-        foreach($sql_arr as $key=>$sql_val){
-            $fsql .= $sql_val;
-            if(isset($vars[$key])){
-                $fsql .= $this->escape($vars[$key]);
-            } 
-        }    
-    }else{
-        $fsql = $sql;
-    }
-    
-    return $this->fetch_array($fsql);
-}
-
-
-/**
- * @uses returns all columns by id (Column name should be id)
- * @param tblname & id
- * @return single row assoc array of result
- */
-public function getByID($table,$id){
-	return $this->query_first("SELECT * FROM $table WHERE `id` = '".$this->escape($id)."'");
-	
-}   //getByID
-
-
-/**
- * @uses returns single row of a table search by column
- * @param tblname , Columname & colval
- * @return single row of assoc array of result
- */
-public function getByCol($table,$col_name,$col_val){
-	return $this->query_first("SELECT * FROM $table WHERE `$col_name` = '".$this->escape($col_val)."'");
-	
-}   //getByCol
-
-
-/**
- * @uses counts number of rows returned
- * @param table, where clause optional
- * @return Int num of rows
- */
-public function count_rows($table, $where=" 1 "){
-	$sql="SELECT COUNT(*) as row_cnt FROM `$table` WHERE ".$where;
-	$data = $this->query_first($sql);
-    return $data['row_cnt'];
-}   //count_rows
-
-
-/**
- * @uses does an update query with an array
- * @param table, assoc array with data (not escaped), where condition (optional. if none given, all records updated)
- * @return (query_id) for fetching results etc
- */
-public function update($table, $data, $where='1'){
-	$q="UPDATE `$table` SET ";
-
-	foreach($data as $key=>$val){
-		if(strtolower($val)=='null') $q.= "`$key` = NULL, ";
-		elseif(strtolower($val)=='now()') $q.= "`$key` = NOW(), ";
-        elseif(preg_match("/^increment\((\-?\d+)\)$/i",$val,$m)) $q.= "`$key` = `$key` + $m[1], "; 
-		else $q.= "`$key`='".$this->escape($val)."', ";
-	}
-
-	$q = rtrim($q, ', ') . ' WHERE '.$where.';';
-
-	return $this->query($q);
-}   // update
-
-
-/**
- * @uses does a bulk insert query with an array
- * @param table, assoc array with data (not escaped)
- * @return id of inserted record, false if error
- */
-public function bulk_update($table, $data_arr,$use_tr=false){
-    $error=0;
-    if($use_tr===true)
-        $this->start_transaction();
-	
-    foreach($data_arr as $key=>$data){
-        if(!$this->update($table,$data," `id` = '$key'"))
-            $error++;	   
-	}
-    
-    if($use_tr===true){
-        if($this->error<=0){
-            $this->commit();
-            return true;
-        }else{
-            $this->rollback();
-            return false;
+    /**
+     * Singleton Initialization of the Database Variable
+     * @param null $server
+     * @param null $user
+     * @param null $pass
+     * @param null $database
+     * @return Database
+     */
+    public static function obtain($server=null, $user=null, $pass=null, $database=null){
+        if (!self::$instance){
+            self::$instance = new Database($server, $user, $pass, $database);
         }
-    }else{
-        if($error<=0){
-            return true;
-        }else{
-            return false;
+
+        return self::$instance;
+    }   //obtain
+
+
+    /**
+     * @uses close the connection
+     */
+    public function close(){
+        if(!@mysqli_close($this->link_id)){
+            $this->oops("Connection close failed.");
         }
+    }   //close
+
+
+    /**
+     * @uses escapes characters to be mysql ready
+     * @param string
+     * @return string
+     */
+    public function escape($string){
+        if(get_magic_quotes_runtime()) $string = stripslashes($string);
+        return @mysqli_real_escape_string($this->link_id, $string);
+    }   //escape
+
+
+    /**
+     * Runs a query of raw SQL
+     * @param $sql
+     * @return $this|int
+     */
+    public function query($sql){
+        // do query
+        if($this->show_query===true){
+            $this->oops('Query >> '.$sql,'db_warning');
+        }
+        $this->query_id = @mysqli_query($this->link_id, $sql);
+
+        if (!$this->query_id){
+            $this->error++;
+            $this->oops("<b>MySQL Query fail:</b> $sql");
+            return 0;
+        }
+
+        $this->affected_rows = @mysqli_affected_rows($this->link_id);
+
+        return $this;
+    }   //query
+
+
+    /**
+     * does a query, fetches the first row only
+     * @param $query_string
+     * @return array|null
+     */
+    public function query_first($query_string){
+        return $this->query($query_string)->fetch();
+    }   // query_first
+
+
+    /**
+     * fetches and returns results one line at a time
+     * @param int $type
+     * @return array|null
+     */
+    public function fetch($type=MYSQLI_ASSOC){
+
+        if (isset($this->query_id)){
+            $record = @mysqli_fetch_array($this->query_id,$type);
+        }else{
+            $this->oops("Invalid query_id. Records could not be fetched.");
+        }
+
+        return $record;
+    }   // fetch
+
+
+    /**
+     * returns all the results of the current query
+     * @param int $type
+     * @return array
+     */
+    public function fetch_all($type=MYSQLI_ASSOC){
+
+        $out = array();
+
+        while ($row = $this->fetch($type)){
+            $out[] = $row;
+        }
+
+        return $out;
+    }   //fetch_array
+
+
+    /**
+     * get all rows matching sql criteria (auto escaped vars)
+     * @param $sql
+     * @param $vars
+     * @return $this
+     */
+    public function get($sql, $vars){
+        $safe = array();
+        foreach($vars as $key=>$var){
+            $safe[':'.$key] = $this->escape($var);
+        }
+        $this->query(strtr($sql,$safe));
+        return $this;
     }
 
-}   //bulk_insert
+
+    /**
+     * returns all columns by id (Column name should be id)
+     * @param $table
+     * @param $id
+     * @return Database
+     */
+    public function getByID($table, $id){
+        return $this->get("SELECT * FROM $table WHERE `id` = ':id'",['id'=>$id]);
+
+    }   //getByID
 
 
-/**
- * @uses does an insert query with an array
- * @param table, assoc array with data (not escaped)
- * @return id of inserted record, false if error
- */
-public function insert($table, $data){
-	$q="INSERT INTO `$table` ";
-	$v=''; $n='';
+    /**
+     * returns single row of a table search by column
+     * @param $table
+     * @param $col_name
+     * @param $col_val
+     * @return Database
+     */
+    public function getByCol($table, $col_name, $col_val){
+        return $this->get("SELECT * FROM $table WHERE `:col` = ':val'",['col'=>$col_name,'val'=>$col_val]);
 
-	foreach($data as $key=>$val){
-		$n.="`$key`, ";
-		if(strtolower($val)=='null') $v.="NULL, ";
-		elseif(strtolower($val)=='now()') $v.="NOW(), ";
-		else $v.= "'".$this->escape($val)."', ";
-	}
-
-	$q .= "(". rtrim($n, ', ') .") VALUES (". rtrim($v, ', ') .");";
-    //echo $q;
-	if($this->query($q)){
-		return mysqli_insert_id($this->link_id);
-	}
-	else return false;
-
-}   //insert
+    }   //getByCol
 
 
-/**
- * @uses does a bulk insert query with an array
- * @param table, assoc array with data (not escaped)
- * @return id of inserted record, false if error
- */
-public function bulk_insert($table, $data_arr,$use_tr=false){
-    $error=0;
-    if($use_tr===true)
-        $this->start_transaction();
-	
-    foreach($data_arr as $key=>$data){
-        if(!$this->insert($table,$data))
-            $error++;	   
-	}
-    
-    if($use_tr===true){
-        if($this->error<=0){
-            $this->commit();
-            return true;
-        }else{
-            $this->rollback();
-            return false;
+    /**
+     * Count rows of a table
+     * @param $table
+     * @param string $where
+     * @return mixed
+     */
+    public function count_rows($table, $where=" 1 "){
+        $sql="SELECT COUNT(*) as row_cnt FROM `$table` WHERE ".$where;
+        $data = $this->query($sql)->fetch();
+        return $data['row_cnt'];
+    }   //count_rows
+
+
+    /**
+     * does an update query with an array
+     * @param $table
+     * @param $data
+     * @param string $where
+     * @return bool
+     */
+    public function update($table, $data, $where='1'){
+        $q="UPDATE `$table` SET ";
+
+        foreach($data as $key=>$val){
+            if(strtolower($val)=='null') $q.= "`$key` = NULL, ";
+            elseif(strtolower($val)=='now()') $q.= "`$key` = NOW(), ";
+            elseif(preg_match("/^increment\((\-?\d+)\)$/i",$val,$m)) $q.= "`$key` = `$key` + $m[1], ";
+            else $q.= "`$key`='".$this->escape($val)."', ";
         }
-    }else{
-        if($error<=0){
+
+        $q = rtrim($q, ', ') . ' WHERE '.$where.';';
+
+        $this->query($q);
+
+        if($this->query_id){
             return true;
-        }else{
-            return false;
         }
-    }
 
-}   //bulk_insert
+        return false;
+    }   // update
 
 
+    /**
+     * Bulk update entries
+     * @param $table
+     * @param $data_arr
+     * @param bool|false $use_tr
+     * @return bool
+     */
+    public function bulk_update($table, $data_arr, $use_tr=false){
+        $error=0;
+        if($use_tr===true)
+            $this->start_transaction();
 
-/**
- * @uses does delete query 
- * @param table, Where statement
- * @return true is success, false if error
- */
-public function delete($table, $where=" id = 'NaN'"){
-	$q="DELETE FROM `$table` WHERE ".$where;
-	//echo $q;
-	if($this->query($q)){
-		return true;
-	}
-	else return false;
+        foreach($data_arr as $key=>$data){
+            if(!$this->update($table,$data," `id` = '$key'"))
+                $error++;
+        }
 
-}   //delete
+        if($use_tr===true){
+            if($this->error<=0){
+                $this->commit();
+                return true;
+            }else{
+                $this->rollback();
+                return false;
+            }
+        }else{
+            if($error<=0){
+                return true;
+            }else{
+                return false;
+            }
+        }
+
+    }   //bulk_insert
+
+
+    /**
+     * does an insert query with an array
+     * @param $table
+     * @param $data
+     * @return bool|int|string
+     */
+    public function insert($table, $data){
+        $q="INSERT INTO `$table` ";
+        $v=''; $n='';
+
+        foreach($data as $key=>$val){
+            $n.="`$key`, ";
+            if(strtolower($val)=='null') $v.="NULL, ";
+            elseif(strtolower($val)=='now()') $v.="NOW(), ";
+            else $v.= "'".$this->escape($val)."', ";
+        }
+
+        $q .= "(". rtrim($n, ', ') .") VALUES (". rtrim($v, ', ') .");";
+        //echo $q;
+        $this->query($q);
+        if($this->query_id){
+            return mysqli_insert_id($this->link_id);
+        }
+
+        return false;
+
+    }   //insert
+
+
+    /**
+     * Bulk insert
+     * @param $table
+     * @param $data_arr
+     * @param bool|false $use_tr
+     * @return bool
+     */
+    public function bulk_insert($table, $data_arr, $use_tr=false){
+        $error=0;
+        if($use_tr===true)
+            $this->start_transaction();
+
+        foreach($data_arr as $key=>$data){
+            if(!$this->insert($table,$data))
+                $error++;
+        }
+
+        if($use_tr===true){
+            if($this->error<=0){
+                $this->commit();
+                return true;
+            }else{
+                $this->rollback();
+                return false;
+            }
+        }else{
+            if($error<=0){
+                return true;
+            }else{
+                return false;
+            }
+        }
+
+    }   //bulk_insert
+
+
+    /**
+     * Delete Query
+     * @param $table
+     * @param string $where
+     * @return bool
+     */
+    public function delete($table, $where=" id = 'NaN'"){
+        $q="DELETE FROM `$table` WHERE ".$where;
+        $this->query($q);
+        if($this->query_id){
+            return true;
+        }
+
+        return false;
+
+    }   //delete
 
 
 /**
@@ -520,8 +504,7 @@ function backup_tables($folder,$tables = '*'){
     //get all of the tables
     if($tables == '*'){
         $tables = array();
-        $result = $this->query('SHOW TABLES');
-        while($row = $this->fetch($result,MYSQLI_NUM)){
+        while($row = $this->query('SHOW TABLES')->fetch(MYSQLI_NUM)){
             var_dump($row);
           $tables[] = $row[0];
         }
@@ -572,8 +555,7 @@ private function oops($msg='',$type='db_error'){
 		$error = mysqli_error($this->link_id);
 	}
 	else{
-		$error = mysqli_error();
-		$msg="<b>WARNING:</b> No link_id found. Not connected to any Database.<br />$msg";
+		$error="<b>WARNING:</b> No link_id found. Not connected to any Database.<br />$msg";
 	}
     
     $db_title = array('db_info'=>'Database Information',
