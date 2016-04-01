@@ -58,7 +58,7 @@ class Database {
      * @uses Stores Error Count
      * @var Int
      */
-	private	$error = "";
+	private	$error = 0;
 
 	/**
      * @uses Number of Rows affected by previous query
@@ -68,8 +68,8 @@ class Database {
     /**
      * @uses Database Connection Link ID & Query Return ID
      */
-	private	$link_id = 0;
-	private	$query_id = 0;
+	private	$link_id;
+	private	$query_id;
 	
 	/**
      * @uses Enable or Disable Transaction
@@ -85,7 +85,7 @@ class Database {
 public function __construct($server=null, $user=null, $pass=null, $database=null){
 	// error catching if not passed in
 	if($server==null || $user==null || $database==null){
-		$this->oops("Database information must be passed in when the object is first created.");
+		$this->oops("Database information must be passed in when the object is first created.","db_error");
 	}
 
 	$this->server=$server;
@@ -121,7 +121,7 @@ public function __construct($server=null, $user=null, $pass=null, $database=null
      */
     public function close(){
         if(!@mysqli_close($this->link_id)){
-            $this->oops("Connection close failed.");
+            $this->oops("Connection close failed.","db_error");
         }
     }   //close
 
@@ -132,26 +132,35 @@ public function __construct($server=null, $user=null, $pass=null, $database=null
      * @return string
      */
     public function escape($string){
-        if(get_magic_quotes_runtime()) $string = stripslashes($string);
+        if(get_magic_quotes_gpc()) $string = stripslashes($string);
         return @mysqli_real_escape_string($this->link_id, $string);
     }   //escape
 
 
     /**
-     * Runs a query of raw SQL
+     * Runs a Raw / Named Query query of raw SQL
      * @param $sql
      * @return $this|int
      */
-    public function query($sql){
-        // do query
-        if($this->show_query===true){
-            $this->oops('Query >> '.$sql,'db_warning');
+    public function query($sql,$params=null){
+        if($params!=null){
+            $safe = array();
+            foreach($params as $key=>$param){
+                $safe[':'.$key] = $this->escape($param);
+            }
+            $sql = strtr($sql,$safe);
         }
+
+        // Display Query
+        if($this->show_query===true){
+            $this->oops('Query >> '.$sql,'db_info');
+        }
+
         $this->query_id = @mysqli_query($this->link_id, $sql);
 
         if (!$this->query_id){
             $this->error++;
-            $this->oops("<b>MySQL Query fail:</b> $sql");
+            $this->oops("<b>MySQL Query fail:</b> $sql","db_error");
             return 0;
         }
 
@@ -162,26 +171,16 @@ public function __construct($server=null, $user=null, $pass=null, $database=null
 
 
     /**
-     * does a query, fetches the first row only
-     * @param $query_string
-     * @return array|null
-     */
-    public function query_first($query_string){
-        return $this->query($query_string)->fetch();
-    }   // query_first
-
-
-    /**
      * fetches and returns results one line at a time
      * @param int $type
      * @return array|null
      */
     public function fetch($type=MYSQLI_ASSOC){
-
+        $record = array();
         if (isset($this->query_id)){
             $record = @mysqli_fetch_array($this->query_id,$type);
         }else{
-            $this->oops("Invalid query_id. Records could not be fetched.");
+            $this->oops("Invalid query_id. Records could not be fetched.","db_error");
         }
 
         return $record;
@@ -206,31 +205,15 @@ public function __construct($server=null, $user=null, $pass=null, $database=null
 
 
     /**
-     * get all rows matching sql criteria (auto escaped vars)
-     * @param $sql
-     * @param $vars
-     * @return $this
-     */
-    public function get($sql, $vars){
-        $safe = array();
-        foreach($vars as $key=>$var){
-            $safe[':'.$key] = $this->escape($var);
-        }
-        $this->query(strtr($sql,$safe));
-        return $this;
-    }
-
-
-    /**
      * returns all columns by id (Column name should be id)
      * @param $table
      * @param $id
      * @return Database
      */
-    public function getByID($table, $id){
-        return $this->get("SELECT * FROM $table WHERE `id` = ':id'",['id'=>$id]);
+    public function findById($table, $id){
+        return $this->query("SELECT * FROM $table WHERE `id` = ':id'",['id'=>$id])->fetch();
 
-    }   //getByID
+    }
 
 
     /**
@@ -240,10 +223,10 @@ public function __construct($server=null, $user=null, $pass=null, $database=null
      * @param $col_val
      * @return Database
      */
-    public function getByCol($table, $col_name, $col_val){
-        return $this->get("SELECT * FROM $table WHERE `:col` = ':val'",['col'=>$col_name,'val'=>$col_val]);
+    public function findByCol($table, $col_name, $col_val){
+        return $this->query("SELECT * FROM $table WHERE `:col` = ':val'",['col'=>$col_name,'val'=>$col_val])->fetch();
 
-    }   //getByCol
+    }
 
 
     /**
@@ -252,11 +235,11 @@ public function __construct($server=null, $user=null, $pass=null, $database=null
      * @param string $where
      * @return mixed
      */
-    public function count_rows($table, $where=" 1 "){
+    public function count($table, $where=" 1 "){
         $sql="SELECT COUNT(*) as row_cnt FROM `$table` WHERE ".$where;
         $data = $this->query($sql)->fetch();
         return $data['row_cnt'];
-    }   //count_rows
+    }
 
 
     /**
@@ -264,12 +247,16 @@ public function __construct($server=null, $user=null, $pass=null, $database=null
      * @param $table
      * @param $data
      * @param string $where
+     * @param array $filter
      * @return bool
      */
-    public function update($table, $data, $where='1'){
+    public function update($table, $data, $where='1', $filter=array()){
         $q="UPDATE `$table` SET ";
 
         foreach($data as $key=>$val){
+            if(!empty($filter) && !in_array($key,$filter,true)){
+               continue;
+            }
             if(strtolower($val)=='null') $q.= "`$key` = NULL, ";
             elseif(strtolower($val)=='now()') $q.= "`$key` = NOW(), ";
             elseif(preg_match("/^increment\((\-?\d+)\)$/i",$val,$m)) $q.= "`$key` = `$key` + $m[1], ";
@@ -285,42 +272,34 @@ public function __construct($server=null, $user=null, $pass=null, $database=null
         }
 
         return false;
-    }   // update
+    }
 
 
     /**
      * Bulk update entries
      * @param $table
      * @param $data_arr
+     * @param array $filter
      * @param bool|false $use_tr
      * @return bool
      */
-    public function bulk_update($table, $data_arr, $use_tr=false){
-        $error=0;
+    public function bulk_update($table, $data_arr, $filter=array(), $use_tr=false){
+
         if($use_tr===true)
             $this->start_transaction();
 
         foreach($data_arr as $key=>$data){
-            if(!$this->update($table,$data," `id` = '$key'"))
-                $error++;
+            if(!$this->update($table,$data," `id` = '$key'", $filter))
+                $this->error++;
         }
 
-        if($use_tr===true){
-            if($this->error<=0){
-                $this->commit();
-                return true;
-            }else{
-                $this->rollback();
-                return false;
-            }
-        }else{
-            if($error<=0){
-                return true;
-            }else{
-                return false;
-            }
-        }
+        if($use_tr===true)
+            return $this->stop_transaction();
 
+        if($this->error<=0)
+            return true;
+
+        return false;
     }   //bulk_insert
 
 
@@ -328,13 +307,17 @@ public function __construct($server=null, $user=null, $pass=null, $database=null
      * does an insert query with an array
      * @param $table
      * @param $data
+     * @param array $filter
      * @return bool|int|string
      */
-    public function insert($table, $data){
+    public function insert($table, $data, $filter=array()){
         $q="INSERT INTO `$table` ";
         $v=''; $n='';
 
         foreach($data as $key=>$val){
+            if(!empty($filter) && !in_array($key,$filter,true)){
+                continue;
+            }
             $n.="`$key`, ";
             if(strtolower($val)=='null') $v.="NULL, ";
             elseif(strtolower($val)=='now()') $v.="NOW(), ";
@@ -361,30 +344,21 @@ public function __construct($server=null, $user=null, $pass=null, $database=null
      * @return bool
      */
     public function bulk_insert($table, $data_arr, $use_tr=false){
-        $error=0;
         if($use_tr===true)
             $this->start_transaction();
 
         foreach($data_arr as $key=>$data){
             if(!$this->insert($table,$data))
-                $error++;
+                $this->error++;
         }
 
-        if($use_tr===true){
-            if($this->error<=0){
-                $this->commit();
-                return true;
-            }else{
-                $this->rollback();
-                return false;
-            }
-        }else{
-            if($error<=0){
-                return true;
-            }else{
-                return false;
-            }
-        }
+        if($use_tr===true)
+            return $this->stop_transaction();
+
+        if($this->error<=0)
+            return true;
+
+        return false;
 
     }   //bulk_insert
 
@@ -407,18 +381,6 @@ public function __construct($server=null, $user=null, $pass=null, $database=null
     }   //delete
 
 
-/**
- * @uses frees the resultset
- * @param query_id for mysql run. if none specified, last used
- */
-private function free_result($query_id=false){
-	if ($query_id!==false){
-		$this->query_id=$query_id;
-	}
-	mysqli_free_result($this->query_id);
-}   // free_result
-
-
 /***************************************************************
 ***************** Transactions *********************************
 ***************************************************************/
@@ -438,6 +400,35 @@ public function start_transaction(){
 	return mysqli_autocommit($this->link_id,FALSE);
     
 }   //start_transaction
+
+/**
+ * @uses Commits a Transaction ie saves all the changes
+ * @return Bool
+ */
+public function commit(){
+    if($this->transactionDebug===true){
+        $this->oops('Commiting Transaction.','db_success');
+    }
+
+    $return = mysqli_commit($this->link_id);
+    mysqli_autocommit($this->link_id,TRUE);
+    return $return;
+}   //commit
+
+
+/**
+ * @uses Roolback a Transaction ie discard all the changes
+ * @return Bool
+ */
+public function rollback(){
+    if($this->transactionDebug===true){
+        $this->oops('Rolling Back Transaction.','db_warning');
+    }
+    $return = mysqli_rollback($this->link_id);
+    mysqli_autocommit($this->link_id,TRUE);
+    return $return;
+
+}   //rollback
 
 
 /**
@@ -463,36 +454,10 @@ public function stop_transaction(){
     
 }   //stop_transaction
 
-
-/**
- * @uses Commits a Transaction ie saves all the changes
- * @return Bool
- */
-public function commit(){
-	if($this->transactionDebug===true){
-        $this->oops('Commiting Transaction.','db_success');
-    }
-    
-	$return = mysqli_commit($this->link_id);
-    mysqli_autocommit($this->link_id,TRUE);
-	return $return;
-}   //commit
-
-
-/**
- * @uses Roolback a Transaction ie discard all the changes
- * @return Bool
- */
-public function rollback(){
-	if($this->transactionDebug===true){
-        $this->oops('Rolling Back Transaction.','db_warning');
-    }
-	$return = mysqli_rollback($this->link_id);
-	mysqli_autocommit($this->link_id,TRUE);
-	return $return;
-    
-}   //rollback
-
+public function fields()
+{
+    return mysqli_num_fields($this->query_id);
+}
 
 /**
  * @uses backups the database tables to file specified(Sql Dump)
@@ -504,34 +469,36 @@ function backup_tables($folder,$tables = '*'){
     //get all of the tables
     if($tables == '*'){
         $tables = array();
-        while($row = $this->query('SHOW TABLES')->fetch(MYSQLI_NUM)){
-            var_dump($row);
-          $tables[] = $row[0];
+        $table_rows = $this->query('SHOW TABLES')->fetch_all(MYSQLI_NUM);
+        foreach($table_rows as $table_row){
+            $tables[] = $table_row[0];
         }
     }else{
         $tables = is_array($tables) ? $tables : explode(',',$tables);
     }
-  
+
+
     //cycle through
     foreach($tables as $table){
         $result = $this->query('SELECT * FROM '.$table);
-        $num_fields = mysqli_num_fields($result);
+        $num_fields = $result->fields();
         
         $return.= 'DROP TABLE '.$table.';';
-        $row2 = $this->fetch($this->query('SHOW CREATE TABLE '.$table),MYSQLI_NUM);
+        $row2 = $this->query('SHOW CREATE TABLE '.$table)->fetch(MYSQLI_NUM);
         $return.= "\n\n".$row2[1].";\n\n";
         
         for ($i = 0; $i < $num_fields; $i++){
-          while($row = $this->fetch($result,MYSQLI_NUM)){
-            $return.= 'INSERT INTO '.$table.' VALUES(';
-            for($j=0; $j<$num_fields; $j++){
-              $row[$j] = addslashes($row[$j]);
-              $row[$j] = ereg_replace("\n","\\n",$row[$j]);
-              if (isset($row[$j])) { $return.= '"'.$row[$j].'"' ; } else { $return.= '""'; }
-              if ($j<($num_fields-1)) { $return.= ','; }
+            $rows = $result->fetch_all(MYSQLI_NUM);
+            foreach($rows as $row){
+                $return.= 'INSERT INTO '.$table.' VALUES(';
+                for($j=0; $j<$num_fields; $j++){
+                  $row[$j] = addslashes($row[$j]);
+                  $row[$j] = ereg_replace("\n","\\n",$row[$j]);
+                  if (isset($row[$j])) { $return.= '"'.$row[$j].'"' ; } else { $return.= '""'; }
+                  if ($j<($num_fields-1)) { $return.= ','; }
+                }
+                $return.= ");\n";
             }
-            $return.= ");\n";
-          }
         }
         $return.="\n\n\n";
     }
@@ -616,6 +583,12 @@ private function oops($msg='',$type='db_error'){
 	<?php
 }   //oops
 
+
+public function dd($var)
+{
+    var_dump($var);
+    die();
+}
 
 }   // Class DB
 ?>
